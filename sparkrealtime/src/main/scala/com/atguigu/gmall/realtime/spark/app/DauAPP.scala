@@ -17,68 +17,70 @@ import scala.collection.mutable.ListBuffer
 
 object DauAPP {
   def main(args: Array[String]): Unit = {
-    //创建SparkStreaming环境
-    val conf: SparkConf = new SparkConf().setMaster("local[*]").setAppName("dau_app")
+    //创建SparkStreaming 环境
+    val conf: SparkConf = new SparkConf().setMaster("local[4]").setAppName("dau_app")
     val ssc = new StreamingContext(conf, Seconds(5))
-    val groupId = "dau_appgroup"
-    val topic = "ODS_BASE_LOG" // operational data store
-    //从kafka 接收数据
-    val recordInputDstream: InputDStream[ConsumerRecord[String, String]] = MyKafkaUtil.getKafkaStream(topic, ssc, groupId)
-    //处理数据  0    1
-    //    recordInputDstream.map(_.value()).print();
 
-    //数据整理格式
-    val jsonDstream: DStream[JSONObject] = recordInputDstream.map { record =>
-      val jsonObject: JSONObject = JSON.parseObject(record.value())
-      val ts: lang.Long = jsonObject.getLong("ts")
-      val dateFormat = new SimpleDateFormat("yyyy-MMM-dd HH")
+    //从kafka接收数据
+    val groupId = "dau_app_group"
+    val topic = "ODS_BASE_LOG"
+    val recordInputDstream: InputDStream[ConsumerRecord[String, String]] = MyKafkaUtil.getKafkaStream(topic, ssc, groupId)
+
+    // 处理数据 1 数据整理 格式化日期格式
+    val jsonDstream: DStream[JSONObject] = recordInputDstream.map { record => {
+      val jSObject: JSONObject = JSON.parseObject(record.value())
+      //整理日期 提取出日期和小时
+      val ts: lang.Long = jSObject.getLong("ts")
+      val dateFormat = new SimpleDateFormat("yyyy-MM-dd HH")
       val dateTimeStr: String = dateFormat.format(new Date(ts))
       val dateTimeArr: Array[String] = dateTimeStr.split(" ")
-      jsonObject.put("dt", dateTimeArr(0))
-      jsonObject.put("hr", dateTimeArr(1))
-      jsonObject
+      jSObject.put("dt", dateTimeArr(0))
+      jSObject.put("hr", dateTimeArr(1))
+      jSObject
     }
-
+    }
+    //帅选出 用户首次访问的页面
     val firstVisitDstream: DStream[JSONObject] = jsonDstream.filter(jsonObj => {
+      var ifFirst = false
       val pageJson: JSONObject = jsonObj.getJSONObject("page")
       if (pageJson != null) {
         val lastPageId: String = pageJson.getString("last_page_id")
         if (lastPageId == null || lastPageId.length == 0) {
-          true
-        } else {
-          false
+          ifFirst = true
         }
-      } else {
-
-        false
       }
+      ifFirst
     })
     firstVisitDstream.print(100)
 
-    //去重 使用Redis进行去重
-    firstVisitDstream.mapPartitions { jsonItr =>
-      val jedis: Jedis = RedisUtil.getJedisClient
-      val listBuffer = new ListBuffer[JSONObject]()
-      for (jsonObj <- jsonItr) {
-        val mid: String = jsonObj.getJSONObject("common").getString("mid")
-        val dt: String = jsonObj.getString("dt")
-        val dauKey = "dut" + dt
-        val noExists: lang.Long = jedis.sadd(dauKey, mid) //0已存在  1 不存在
-        jedis.expire(dauKey, 24 * 3600)
-        jedis.close()
-        if (noExists == 1L) {
-          listBuffer.append(jsonObj)
+    //去重 使用Redis去重
+    val dauJsonObjDstream: DStream[JSONObject] = firstVisitDstream.mapPartitions {
+      jsonItr => {
+        val jedis: Jedis = RedisUtil.getJedisClient
+        val sourceList: List[JSONObject] = jsonItr.toList
+        val rsList = new ListBuffer[JSONObject]()
+        println("筛选前" + sourceList.size)
+        for (jsonObj <- sourceList) {
+          val mid: String = jsonObj.getJSONObject("common").getString("mid")
+          val dt: String = jsonObj.getString("dt")
+          val dauKey = "dau" + dt
+          val nonExists: lang.Long = jedis.sadd(dauKey, mid) //返回0 表示已经存在  返回1 表示未存在
+          jedis.expire(dauKey, 24 * 3600)
+          if (nonExists == 1L) {
+            rsList.append(jsonObj)
+          }
         }
+        jedis.close()
+        println("筛选后：" + rsList.size)
+        rsList.toIterator
       }
-      jedis.close()
-      listBuffer.toIterator
     }
+    dauJsonObjDstream.print(100)
 
-    //输出数据
+
 
     ssc.start()
     ssc.awaitTermination()
-
   }
 
 }
