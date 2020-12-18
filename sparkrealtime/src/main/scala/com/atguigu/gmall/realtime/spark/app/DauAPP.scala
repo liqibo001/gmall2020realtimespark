@@ -40,7 +40,7 @@ object DauAPP {
       jSObject
     }
     }
-    //帅选出 用户首次访问的页面
+    //筛选出 用户首次访问的页面
     val firstVisitDstream: DStream[JSONObject] = jsonDstream.filter(jsonObj => {
       var ifFirst = false
       val pageJson: JSONObject = jsonObj.getJSONObject("page")
