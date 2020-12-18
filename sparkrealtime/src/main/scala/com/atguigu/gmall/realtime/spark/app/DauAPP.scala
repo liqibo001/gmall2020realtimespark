@@ -26,6 +26,7 @@ object DauAPP {
     val topic = "ODS_BASE_LOG"
     val recordInputDstream: InputDStream[ConsumerRecord[String, String]] = MyKafkaUtil.getKafkaStream(topic, ssc, groupId)
 
+
     // 处理数据 1 数据整理 格式化日期格式
     val jsonDstream: DStream[JSONObject] = recordInputDstream.map { record => {
       val jSObject: JSONObject = JSON.parseObject(record.value())
