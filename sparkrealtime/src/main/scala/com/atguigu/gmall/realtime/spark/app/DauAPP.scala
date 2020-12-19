@@ -40,8 +40,18 @@ object DauAPP {
       jSObject
     }
     }
+
+    val value: DStream[JSONObject] = jsonDstream.mapPartitions {
+      jsonItr => {
+        val list: List[JSONObject] = jsonItr.toList
+        println("未过滤数据" + list.size)
+        list.toIterator
+      }
+    }
+
+
     //筛选出 用户首次访问的页面
-    val firstVisitDstream: DStream[JSONObject] = jsonDstream.filter(jsonObj => {
+    val firstVisitDstream: DStream[JSONObject] = value.filter(jsonObj => {
       var ifFirst = false
       val pageJson: JSONObject = jsonObj.getJSONObject("page")
       if (pageJson != null) {
@@ -53,6 +63,9 @@ object DauAPP {
       ifFirst
     })
     firstVisitDstream.print(100)
+
+
+
 
     //去重 使用Redis去重
     val dauJsonObjDstream: DStream[JSONObject] = firstVisitDstream.mapPartitions {
