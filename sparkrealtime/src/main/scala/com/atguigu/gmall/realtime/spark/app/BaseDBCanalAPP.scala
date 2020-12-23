@@ -16,7 +16,6 @@ object BaseDBCanalAPP {
     val conf: SparkConf = new SparkConf().setMaster("local[4]").setAppName("dau_app")
     val ssc = new StreamingContext(conf, Seconds(5))
 
-
     //从kafka接收数据
     val groupId = "DB_app_group"
     val topic = "ODS_BASE_DB_C"
